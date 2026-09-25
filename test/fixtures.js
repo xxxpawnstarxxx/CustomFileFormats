@@ -24,21 +24,47 @@ export async function makePng(width = 16, height = 16) {
   ]);
 }
 
-/** A GLB containing one triangle mesh in a two-node hierarchy. */
+/**
+ * A small but complete scene: a triangle mesh with a material and an
+ * animation, a camera and a KHR_lights_punctual light, under a Root node.
+ */
 export function makeGlb() {
   const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
-  const bin = new Uint8Array(positions.buffer);
+  const times = new Float32Array([0, 1]);
+  const translations = new Float32Array([0, 1, 0, 0, 2, 0]);
+  const bin = concat([positions, times, translations].map((a) => new Uint8Array(a.buffer)));
   const json = {
     asset: { version: '2.0', generator: 'scenefile-test' },
+    extensionsUsed: ['KHR_lights_punctual'],
+    extensions: { KHR_lights_punctual: { lights: [{ name: 'Sun', type: 'directional', intensity: 3 }] } },
     scene: 0,
     scenes: [{ name: 'Scene', nodes: [0] }],
     nodes: [
-      { name: 'Root', children: [1] },
+      { name: 'Root', children: [1, 2, 3] },
       { name: 'Triangle', mesh: 0, translation: [0, 1, 0] },
+      { name: 'Camera', camera: 0, translation: [0, 1, 5] },
+      { name: 'Lamp', extensions: { KHR_lights_punctual: { light: 0 } }, rotation: [-0.383, 0, 0, 0.924] },
     ],
-    meshes: [{ name: 'Tri', primitives: [{ attributes: { POSITION: 0 } }] }],
-    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] }],
-    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: bin.length, target: 34962 }],
+    meshes: [{ name: 'Tri', primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
+    materials: [{ name: 'Wood', pbrMetallicRoughness: { baseColorFactor: [0.6, 0.4, 0.2, 1], metallicFactor: 0 } }],
+    cameras: [{ name: 'Cam', type: 'perspective', perspective: { yfov: 0.8, znear: 0.1 } }],
+    animations: [
+      {
+        name: 'Bounce',
+        channels: [{ sampler: 0, target: { node: 1, path: 'translation' } }],
+        samplers: [{ input: 1, output: 2 }],
+      },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] },
+      { bufferView: 1, componentType: 5126, count: 2, type: 'SCALAR', min: [0], max: [1] },
+      { bufferView: 2, componentType: 5126, count: 2, type: 'VEC3' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: 36, target: 34962 },
+      { buffer: 0, byteOffset: 36, byteLength: 8 },
+      { buffer: 0, byteOffset: 44, byteLength: 24 },
+    ],
     buffers: [{ byteLength: bin.length }],
   };
   return writeGlb({ json, chunks: [{ type: 0x004e4942, data: bin }] });

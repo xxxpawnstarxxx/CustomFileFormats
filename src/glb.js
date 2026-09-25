@@ -5,13 +5,15 @@
 // number of further chunks. The glTF 2.0 spec requires loaders to ignore
 // chunk types they don't recognize, so three.js, Blender, Babylon.js, model
 // viewers, etc. load the model normally. The scene data rides along in a
-// zlib-compressed chunk of type "SCNE".
+// chunk of type "SCNE", holding a container of named data blocks (see
+// blocks.js); the higher-level editor is SceneGlb in scene-doc.js.
 //
 // Separately, `updateGltf()` lets you edit the glTF JSON itself — e.g. put
 // per-node data in `nodes[i].extras`, which Blender imports as custom
 // properties and three.js exposes as `object.userData`.
 
-import { concat, decodeText, deflate, encodeText, inflate, toBytes, unwrap, wrap } from './util.js';
+import { BLOCKS_VERSION, decodeBlocks, encodeBlocks, isBlockContainer, readBlocksHeader } from './blocks.js';
+import { concat, decodeText, encodeText, inflate, toBytes, unwrap } from './util.js';
 
 const MAGIC = 0x46546c67; // "glTF"
 const CHUNK_JSON = 0x4e4f534a; // "JSON"
@@ -85,44 +87,79 @@ export function writeGlb({ json, chunks }) {
   return concat([header, body]);
 }
 
-// The SCNE chunk: 4-byte LE uncompressed length, then zlib-compressed JSON envelope.
-// The chunk data may carry trailing zero padding, hence the explicit length prefix.
-async function encodeSceneChunk(data) {
-  const compressed = await deflate(encodeText(JSON.stringify(wrap(data, 'glb'))));
-  const out = new Uint8Array(4 + compressed.length);
-  new DataView(out.buffer).setUint32(0, compressed.length, true);
-  out.set(compressed, 4);
-  return out;
+// Version 1 SCNE chunks: 4-byte LE compressed length, then zlib-compressed JSON
+// envelope. Still readable; files are rewritten as version 2 block containers.
+async function decodeLegacySceneChunk(data) {
+  const size = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true);
+  return unwrap(JSON.parse(decodeText(await inflate(data.subarray(4, 4 + size)))));
 }
 
-async function decodeSceneChunk(data) {
-  const size = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true);
-  const json = decodeText(await inflate(data.subarray(4, 4 + size)));
-  return unwrap(JSON.parse(json));
+const findSceneChunk = (glb) => glb.chunks.find((c) => c.type === CHUNK_SCENE);
+
+/**
+ * Read the scene blocks from a GLB (bytes or a readGlb() result).
+ * Returns { header, blocks: Map<name, block> }, or null if the GLB has none.
+ */
+export async function readSceneBlocks(glb) {
+  if (!glb.chunks) glb = readGlb(glb);
+  const chunk = findSceneChunk(glb);
+  if (!chunk) return null;
+  if (isBlockContainer(chunk.data)) return decodeBlocks(chunk.data);
+  const env = await decodeLegacySceneChunk(chunk.data);
+  return {
+    header: { format: env.format, version: env.version, savedAt: env.savedAt, blocks: [] },
+    blocks: new Map([['data', { type: 'json', value: env.data }]]),
+  };
+}
+
+/** List stored blocks (name, type, sizes) without decompressing them. */
+export function listSceneBlocks(glbBytes) {
+  const chunk = findSceneChunk(readGlb(glbBytes));
+  if (!chunk) return null;
+  if (!isBlockContainer(chunk.data)) return [{ name: 'data', type: 'json', compression: 'zlib', legacy: true }];
+  return readBlocksHeader(chunk.data).header.blocks;
+}
+
+/** Replace the SCNE chunk of a parsed GLB in place with the given blocks. */
+export async function setSceneChunk(glb, blocks, meta) {
+  glb.chunks = glb.chunks.filter((c) => c.type !== CHUNK_SCENE);
+  glb.chunks.push({ type: CHUNK_SCENE, data: await encodeBlocks(blocks, meta) });
+  glb.json.asset ??= { version: '2.0' };
+  glb.json.asset.extras = {
+    ...glb.json.asset.extras,
+    scenefile: { chunk: 'SCNE', encoding: 'scenefile-blocks', version: BLOCKS_VERSION },
+  };
+  return glb;
+}
+
+/** Write scene blocks into a GLB, replacing any existing scene data. Returns new bytes. */
+export async function writeSceneBlocks(glbBytes, blocks, meta) {
+  return writeGlb(await setSceneChunk(readGlb(glbBytes), blocks, meta));
 }
 
 /**
- * Embed scene data into a GLB. Returns new GLB bytes; the model is untouched.
- * Any scene data already in the file is replaced. A small marker is also
- * written to `asset.extras.scenefile` so the presence of the data is visible
- * to tools that only look at the JSON.
+ * Embed free-form scene data into a GLB (stored as the "data" block). Other
+ * blocks already in the file (objects, editor state, …) are kept. The model
+ * itself is untouched. A small marker is also written to
+ * `asset.extras.scenefile` so tools that only read the JSON can see it.
  */
 export async function embedGlb(glbBytes, data) {
   const glb = readGlb(glbBytes);
-  glb.chunks = glb.chunks.filter((c) => c.type !== CHUNK_SCENE);
-  glb.chunks.push({ type: CHUNK_SCENE, data: await encodeSceneChunk(data) });
-  glb.json.asset ??= { version: '2.0' };
-  glb.json.asset.extras = { ...glb.json.asset.extras, scenefile: { chunk: 'SCNE', encoding: 'zlib+json' } };
-  return writeGlb(glb);
+  const blocks = (await readSceneBlocks(glb))?.blocks ?? new Map();
+  blocks.set('data', { type: 'json', value: data });
+  return writeGlb(await setSceneChunk(glb, blocks));
 }
 
-/** Read the full envelope ({ format, version, kind, savedAt, data }) or null if absent. */
+/** Read the "data" block as an envelope ({ format, version, kind, savedAt, data }), or null. */
 export async function extractGlbEnvelope(glbBytes) {
-  const chunk = readGlb(glbBytes).chunks.find((c) => c.type === CHUNK_SCENE);
-  return chunk ? decodeSceneChunk(chunk.data) : null;
+  const scene = await readSceneBlocks(glbBytes);
+  const block = scene?.blocks.get('data');
+  if (!block) return null;
+  const { format, version, savedAt } = scene.header;
+  return { format, version, kind: 'glb', savedAt, data: block.value };
 }
 
-/** Read the embedded scene data, or null if the GLB has none. */
+/** Read the embedded free-form scene data, or null if the GLB has none. */
 export async function extractGlb(glbBytes) {
   const env = await extractGlbEnvelope(glbBytes);
   return env ? env.data : null;

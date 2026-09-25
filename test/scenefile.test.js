@@ -66,7 +66,7 @@ test('glb: embed/extract round-trips and keeps the model intact', async () => {
   assert.deepEqual([...after.chunks[0].data], [...before.chunks[0].data]);
   assert.equal(after.chunks[1].type, CHUNK_SCENE);
   assert.deepEqual(after.json.nodes, before.json.nodes);
-  assert.deepEqual(after.json.asset.extras.scenefile, { chunk: 'SCNE', encoding: 'zlib+json' });
+  assert.deepEqual(after.json.asset.extras.scenefile, { chunk: 'SCNE', encoding: 'scenefile-blocks', version: 2 });
 
   // Header length matches and every chunk is 4-byte aligned.
   const view = new DataView(out.buffer, out.byteOffset);
@@ -82,7 +82,7 @@ test('glb: re-embed, strip, envelope', async () => {
   assert.equal(readGlb(twice).chunks.filter((c) => c.type === CHUNK_SCENE).length, 1);
   const env = await extractEnvelope(twice);
   assert.equal(env.kind, 'glb');
-  assert.equal(env.version, 1);
+  assert.equal(env.version, 2);
   assert.deepEqual(env.data, { v: 2 });
   assert.deepEqual([...(await strip(twice))], [...glb]);
 });

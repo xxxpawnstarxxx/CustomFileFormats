@@ -7,6 +7,8 @@ import { toBytes } from './util.js';
 
 export * from './png.js';
 export * from './glb.js';
+export * from './scene-doc.js';
+export { BLOCKS_VERSION, decodeBlocks, encodeBlocks, readBlocksHeader } from './blocks.js';
 export { FORMAT, FORMAT_VERSION } from './util.js';
 
 export const EXTENSIONS = { png: '.scene.png', glb: '.scene.glb' };

@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.js",
     "./png": "./src/png.js",
-    "./glb": "./src/glb.js"
+    "./glb": "./src/glb.js",
+    "./scene-doc": "./src/scene-doc.js"
   },
   "bin": {
     "scenefile": "bin/scenefile.js"
