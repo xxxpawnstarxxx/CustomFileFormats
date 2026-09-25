@@ -1,0 +1,25 @@
+{
+  "name": "scenefile",
+  "version": "0.1.0",
+  "description": "Embed editable scene/workspace data inside normal PNG and GLB files (.scene.png, .scene.glb) — they still open as regular images and 3D models.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./png": "./src/png.js",
+    "./glb": "./src/glb.js"
+  },
+  "bin": {
+    "scenefile": "bin/scenefile.js"
+  },
+  "files": ["src", "bin"],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "samples": "node examples/make-samples.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["png", "glb", "gltf", "metadata", "scene", "workspace", "file-format"],
+  "license": "MIT"
+}
